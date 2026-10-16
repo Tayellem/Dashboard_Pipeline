@@ -1,0 +1,4 @@
+system:index,Ano,EVI_Medio,NDVI_Medio,N_cenas_S2,Precipitacao_mm,Temperatura_C,.geo
+0,2024 (Jan-Set),0.14436565945445531,0.17761661560125572,11,1272.8918011321584,35.532508063355834,"{""type"":""MultiPoint"",""coordinates"":[]}"
+1,2025 (Jan-Set),0.16508814296873917,0.17898131506811218,7,1790.449793457985,32.639089224864726,"{""type"":""MultiPoint"",""coordinates"":[]}"
+2,2026 (Jan-Set),0.122622347300682,0.16815048972362323,17,1602.5720423161983,30.79096502242153,"{""type"":""MultiPoint"",""coordinates"":[]}"
