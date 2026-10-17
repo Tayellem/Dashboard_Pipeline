@@ -1,5 +1,10 @@
 streamlit
+streamlit-folium
+folium
+branca
 pandas
 plotly
-folium
-streamlit-folium
+numpy
+rasterio
+Pillow
+matplotlib
