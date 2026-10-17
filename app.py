@@ -1,4 +1,13 @@
+import base64
+import io
 import json
+
+import numpy as np
+import rasterio
+from PIL import Image
+from matplotlib import colors as mpl_colors
+from rasterio.enums import Resampling
+from rasterio.warp import calculate_default_transform, reproject
 from pathlib import Path
 
 import folium
@@ -34,6 +43,72 @@ IMAGENS = [
 
 COR_T = {"aumento": "#2E9E5B", "estável": "#8A8F98", "redução": "#F28C28", "indeterminada": "#B8BCC4"}
 PALETA = ["#2E9E5B", "#2F80ED", "#F28C28", "#9B51E0", "#E63946", "#00A8A8"]
+
+# Escalas e paletas iguais às utilizadas no Google Earth Engine.
+INDICADORES = {
+    "NDVI": {"arquivo": "NDVI", "min": 0, "max": 0.8,
+             "cores": ["#d73027", "#fee08b", "#1a9850"], "unidade": "NDVI"},
+    "EVI": {"arquivo": "EVI", "min": 0, "max": 0.6,
+            "cores": ["#d73027", "#fee08b", "#1a9850"], "unidade": "EVI"},
+    "Precipitação": {"arquivo": "Precipitacao", "min": 1000, "max": 3000,
+                     "cores": ["#f7fbff", "#6baed6", "#08306b"], "unidade": "mm (jan–set)"},
+    "Temperatura": {"arquivo": "Temperatura", "min": 25, "max": 40,
+                    "cores": ["#313695", "#74add1", "#fee090", "#f46d43", "#a50026"],
+                    "unidade": "°C (superfície)"},
+}
+
+
+@st.cache_data(show_spinner=False)
+def preparar_raster(caminho, minimo, maximo, cores):
+    """Lê GeoTIFF, reprojeta para WGS84 e produz PNG RGBA georreferenciado."""
+    with rasterio.open(caminho) as src:
+        if src.crs is None:
+            raise ValueError("GeoTIFF sem SRC: verifique a exportação do GEE.")
+        if src.crs.to_epsg() == 4326:
+            dados = src.read(1, masked=True).astype("float32")
+            transform = src.transform
+            valido = ~np.ma.getmaskarray(dados)
+            valores = np.asarray(dados.filled(np.nan))
+        else:
+            transform, largura, altura = calculate_default_transform(
+                src.crs, "EPSG:4326", src.width, src.height, *src.bounds
+            )
+            valores = np.full((altura, largura), np.nan, dtype="float32")
+            reproject(
+                source=rasterio.band(src, 1), destination=valores,
+                src_transform=src.transform, src_crs=src.crs,
+                dst_transform=transform, dst_crs="EPSG:4326",
+                src_nodata=src.nodata, dst_nodata=np.nan,
+                resampling=Resampling.nearest,
+            )
+            valido = np.isfinite(valores)
+        valido &= np.isfinite(valores)
+        # Sem reamostragem visual: preserva a resolução nativa do sensor.
+        normalizado = np.clip((valores - minimo) / (maximo - minimo), 0, 1)
+        mapa_cores = mpl_colors.LinearSegmentedColormap.from_list("gee", list(cores))
+        rgba = (mapa_cores(np.nan_to_num(normalizado)) * 255).astype("uint8")
+        rgba[..., 3] = np.where(valido, 255, 0).astype("uint8")
+        oeste = transform.c
+        norte = transform.f
+        leste = oeste + transform.a * valores.shape[1]
+        sul = norte + transform.e * valores.shape[0]
+        if not (sul < norte and oeste < leste):
+            raise ValueError("Limites geográficos inválidos no GeoTIFF.")
+        buffer = io.BytesIO()
+        Image.fromarray(rgba, "RGBA").save(buffer, format="PNG")
+        url = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+        return url, [[sul, oeste], [norte, leste]]
+
+
+def adicionar_legenda_ambiental(mapa, indicador, configuracao):
+    # A escala é fixa entre os anos para que a comparação seja consistente.
+    legenda = LinearColormap(
+        colors=configuracao["cores"], vmin=configuracao["min"],
+        vmax=configuracao["max"],
+        caption=f"{indicador} — {configuracao['unidade']} (jan–set)"
+    )
+    legenda.add_to(mapa)
+
 
 st.markdown(
     """<style>
@@ -115,6 +190,14 @@ sobrepor = st.sidebar.checkbox("Sobrepor contorno de 2024", value=True)
 destaque = st.sidebar.selectbox("Destacar árvore", ["—"] + [int(i) for i in ids])
 destaque = None if destaque == "—" else destaque
 
+st.sidebar.divider()
+st.sidebar.header("Camada ambiental")
+indicador_ambiental = st.sidebar.selectbox(
+    "Indicador", ["Nenhum", *INDICADORES.keys()], index=1
+)
+ano_ambiental = st.sidebar.selectbox("Ano do indicador", [2024, 2025, 2026], index=2)
+opacidade_ambiental = st.sidebar.slider("Opacidade", 0.0, 1.0, 0.70, 0.05)
+
 
 # ============================================================
 # MAPA
@@ -136,6 +219,26 @@ def construir_mapa():
                      attr="Esri World Imagery", name="Satélite", max_native_zoom=19, max_zoom=21).add_to(m)
     folium.TileLayer("CartoDB positron", name="Mapa claro", show=False).add_to(m)
     folium.TileLayer("OpenStreetMap", name="Ruas", show=False).add_to(m)
+
+    # Sobreposição raster primeiro; copas e contorno são desenhados acima.
+    if indicador_ambiental != "Nenhum":
+        conf = INDICADORES[indicador_ambiental]
+        raster = BASE / "rasters" / f"{conf['arquivo']}_{ano_ambiental}.tif"
+        if raster.exists():
+            try:
+                png, limites = preparar_raster(
+                    str(raster), conf["min"], conf["max"], tuple(conf["cores"])
+                )
+                folium.raster_layers.ImageOverlay(
+                    image=png, bounds=limites, opacity=opacidade_ambiental,
+                    name=f"{indicador_ambiental} {ano_ambiental}",
+                    overlay=True, control=True, show=True,
+                ).add_to(m)
+                adicionar_legenda_ambiental(m, indicador_ambiental, conf)
+            except Exception as erro:
+                st.warning(f"Não foi possível carregar {raster.name}: {erro}")
+        else:
+            st.warning(f"Raster não encontrado: rasters/{raster.name}")
 
     if sobrepor and ano != 2024:
         ref = {"type": "FeatureCollection", "features": [f for f in gj["features"] if f["properties"]["ano"] == 2024]}
@@ -209,7 +312,16 @@ with t1:
 
 with t2:
     explicacao("mapa")
+    st.caption(
+        f"Copas: {ano} · Camada ambiental: "
+        + (f"{indicador_ambiental} {ano_ambiental}" if indicador_ambiental != "Nenhum" else "desativada")
+        + " · Período ambiental: janeiro a setembro"
+    )
     st_folium(construir_mapa(), height=580, use_container_width=True, returned_objects=[])
+    st.caption(
+        "NDVI/EVI: Sentinel-2; precipitação: CHIRPS; temperatura de superfície: MODIS. "
+        "As resoluções espaciais dos sensores são diferentes; pixels maiores não representam detalhes de árvores individuais."
+    )
     if destaque is not None:
         r = arv[arv.det_id == destaque].sort_values("ano")
         d = r.iloc[-1]
@@ -222,8 +334,8 @@ with t2:
                                           color_discrete_sequence=[PALETA[0]])), use_container_width=True)
         if d["observacao"]:
             st.warning(d["observacao"])
-    st.subheader("Imagens do Earth Engine")
-    mostrar_imagens()
+    # O mapa interativo acima já mostra os GeoTIFFs reais; prints são opcionais.
+
 
 with t3:
     explicacao("arvores")
@@ -264,7 +376,7 @@ with t4:
         e4.plotly_chart(estilizar(px.bar(amb, x="Ano", y="N_cenas_S2", text_auto=True, title="Cenas Sentinel-2 usadas",
                                          color_discrete_sequence=[PALETA[5]])), use_container_width=True)
     st.caption("Médias do entorno de ≈1,1 km (não das árvores). A temperatura é de superfície (MODIS), não do ar.")
-    mostrar_imagens()
+    # Os gráficos usam o CSV consolidado, não os rasters.
 
 with t5:
     explicacao("associacao")
