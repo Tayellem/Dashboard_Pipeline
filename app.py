@@ -33,7 +33,7 @@ LOREM = (
     "- Excepteur sint occaecat cupidatat non proident.\n"
     "- Sunt in culpa qui officia deserunt mollit anim id est laborum."
 )
-TEXTOS = {k: LOREM for k in ["geral", "mapa", "arvores", "ambiente", "associacao", "sobre"]}
+TEXTOS = {k: LOREM for k in ["geral", "mapa", "arvores", "ambiente", "associacao", "ar", "sobre"]}
 
 # Imagens do Earth Engine (salve os prints em imagens/ no repositório)
 IMAGENS = [
@@ -43,6 +43,16 @@ IMAGENS = [
 
 COR_T = {"aumento": "#2E9E5B", "estável": "#8A8F98", "redução": "#F28C28", "indeterminada": "#B8BCC4"}
 PALETA = ["#2E9E5B", "#2F80ED", "#F28C28", "#9B51E0", "#E63946", "#00A8A8"]
+
+POLUENTES = {
+    "MP2,5": ("pm25_ug_m3", "µg/m³"),
+    "MP10": ("pm10_ug_m3", "µg/m³"),
+    "CO": ("co_ug_m3", "µg/m³"),
+    "NO₂": ("no2_ug_m3", "µg/m³"),
+}
+MESES = {1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr", 5: "Mai",
+         6: "Jun", 7: "Jul", 8: "Ago", 9: "Set"}
+
 
 # Escalas e paletas iguais às utilizadas no Google Earth Engine.
 INDICADORES = {
@@ -152,10 +162,50 @@ def carregar():
     return gj, arv, amb.sort_values("Ano"), []
 
 
+@st.cache_data(show_spinner=False)
+def carregar_ar():
+    caminho = achar("qualidade_ar_mensal_comparavel_2024_2026.csv")
+    if caminho is None:
+        return None, "Arquivo de médias mensais da qualidade do ar não encontrado em data/ ou na raiz."
+    try:
+        df = pd.read_csv(caminho, encoding="utf-8-sig")
+        requeridas = {"ano", "mes", "n_horas", *[x[0] for x in POLUENTES.values()]}
+        ausentes = sorted(requeridas - set(df.columns))
+        if ausentes:
+            return None, "Colunas ausentes no CSV de ar: " + ", ".join(ausentes)
+        for campo in requeridas:
+            df[campo] = pd.to_numeric(df[campo], errors="coerce")
+        df = df.dropna(subset=["ano", "mes", "n_horas"]).copy()
+        df["ano"] = df["ano"].astype(int)
+        df["mes"] = df["mes"].astype(int)
+        df = df[df["ano"].isin([2024, 2025, 2026]) & df["mes"].between(1, 9)]
+        df["mes_nome"] = df["mes"].map(MESES)
+        df = df.sort_values(["ano", "mes"])
+        return df, None
+    except Exception as exc:
+        return None, f"Erro ao ler o arquivo de qualidade do ar: {exc}"
+
+
+def resumo_ar(mensal):
+    """Média ponderada pelas horas disponíveis, não média simples de médias mensais."""
+    linhas = []
+    for ano_ref, grupo in mensal.groupby("ano"):
+        linha = {"ano": int(ano_ref)}
+        for coluna, _ in POLUENTES.values():
+            validos = grupo.dropna(subset=[coluna, "n_horas"])
+            pesos = validos["n_horas"].clip(lower=0)
+            linha[coluna] = float(np.average(validos[coluna], weights=pesos)) if len(validos) and pesos.sum() > 0 else np.nan
+        linhas.append(linha)
+    return pd.DataFrame(linhas).sort_values("ano")
+
+
 gj, arv, amb, faltam = carregar()
 if faltam:
     st.error(f"Arquivos não encontrados no repositório: {', '.join(faltam)}")
     st.stop()
+
+ar_mensal, erro_ar = carregar_ar()
+ar_resumo = resumo_ar(ar_mensal) if ar_mensal is not None and not ar_mensal.empty else None
 
 tot = arv.groupby("ano").agg(area=("area_copa_m2", "sum"), bio=("biomassa_kg", "sum")).reset_index()
 res = tot.merge(amb, left_on="ano", right_on="Ano")
@@ -289,7 +339,7 @@ def mostrar_imagens():
 # ============================================================
 # ABAS
 # ============================================================
-t1, t2, t3, t4, t5, t6 = st.tabs(["🏠 Visão geral", "🗺️ Mapa", "🌿 Árvores", "🌍 Ambiente", "🔗 Associação", "📖 Sobre"])
+t1, t2, t3, t4, t5, t6, t7 = st.tabs(["🏠 Visão geral", "🗺️ Mapa", "🌿 Árvores", "🌍 Ambiente", "🌫️ Qualidade do ar", "🔗 Associação", "📖 Sobre"])
 
 with t1:
     explicacao("geral")
@@ -379,6 +429,56 @@ with t4:
     # Os gráficos usam o CSV consolidado, não os rasters.
 
 with t5:
+    explicacao("ar")
+    st.subheader("Qualidade do ar em Manaus | CAMS Global")
+    st.caption("Estimativas modeladas do Open-Meteo/CAMS Global (grade de aproximadamente 45 km). "
+               "Não são medições de sensores locais nem médias de todas as estações de Manaus.")
+    if ar_mensal is None or ar_mensal.empty:
+        st.warning(erro_ar or "Não há registros de qualidade do ar para exibir.")
+        st.code("data/qualidade_ar_mensal_comparavel_2024_2026.csv")
+    else:
+        filtro1, filtro2 = st.columns([2, 3])
+        with filtro1:
+            poluente = st.selectbox("Poluente", list(POLUENTES), key="pol_ar")
+        with filtro2:
+            anos_ar = st.multiselect("Anos", [2024, 2025, 2026], default=[2024, 2025, 2026], key="anos_ar")
+        campo, unidade = POLUENTES[poluente]
+        selecionado = ar_mensal[ar_mensal["ano"].isin(anos_ar)].copy()
+        resumo_filtrado = ar_resumo[ar_resumo["ano"].isin(anos_ar)].copy()
+        if selecionado.empty:
+            st.info("Selecione pelo menos um ano.")
+        else:
+            metricas = st.columns(len(resumo_filtrado))
+            for caixa, (_, item) in zip(metricas, resumo_filtrado.iterrows()):
+                caixa.metric(f"Média {int(item['ano'])} · {poluente}", f"{item[campo]:.2f} {unidade}")
+            selecionado["ano_txt"] = selecionado["ano"].astype(str)
+            mensal_fig = px.line(selecionado, x="mes", y=campo, color="ano_txt", markers=True,
+                category_orders={"ano_txt": ["2024", "2025", "2026"]},
+                labels={"mes": "Mês", campo: f"Concentração ({unidade})", "ano_txt": "Ano"},
+                title=f"Variação mensal de {poluente} (mesmos dias nos três anos)")
+            mensal_fig.update_xaxes(tickmode="array", tickvals=list(MESES), ticktext=list(MESES.values()))
+            st.plotly_chart(estilizar(mensal_fig), use_container_width=True)
+            bar = px.bar(resumo_filtrado.assign(ano_txt=resumo_filtrado["ano"].astype(str)),
+                x="ano_txt", y=campo, text_auto=".2f",
+                labels={"ano_txt": "Ano", campo: f"Concentração ({unidade})"},
+                title=f"Média no período comparável — {poluente}")
+            st.plotly_chart(estilizar(bar), use_container_width=True)
+            st.subheader("Tabela mensal")
+            dados_tabela = selecionado[["ano", "mes_nome", "n_horas", campo]].rename(columns={
+                "ano": "Ano", "mes_nome": "Mês", "n_horas": "Horas válidas",
+                campo: f"{poluente} ({unidade})"})
+            st.dataframe(dados_tabela, use_container_width=True, hide_index=True)
+            st.download_button("Baixar dados filtrados (CSV)",
+                selecionado.to_csv(index=False).encode("utf-8-sig"),
+                file_name="qualidade_ar_filtrada.csv", mime="text/csv")
+        st.info("Período harmonizado: 10 de janeiro a 22 de setembro de cada ano, excluindo "
+                "29 de fevereiro de 2024. Janeiro e setembro são meses parciais. "
+                "As médias por ano são ponderadas pelas horas válidas de cada mês. "
+                "Os indicadores do Earth Engine foram originalmente calculados para janeiro a setembro, "
+                "portanto as janelas temporais não coincidem integralmente.")
+
+
+with t6:
     explicacao("associacao")
     cols = {"area": "Área de copa", "bio": "Biomassa", "EVI_Medio": "EVI", "NDVI_Medio": "NDVI",
             "Precipitacao_mm": "Precipitação", "Temperatura_C": "Temp. superfície"}
@@ -397,10 +497,32 @@ with t5:
     st.dataframe(sentido, use_container_width=True, hide_index=True)
     st.warning("Há apenas três pontos no tempo e um único valor ambiental para todas as árvores: o painel mostra se as "
                "variáveis se movem juntas, sem teste estatístico e sem relação de causa.")
-    st.subheader("Sensores de qualidade do ar")
-    st.info("Espaço reservado para os dados dos sensores e para a regressão linear (a adicionar).")
+    st.subheader("Qualidade do ar e variação das árvores")
+    if ar_resumo is None:
+        st.info(erro_ar or "Sem registros válidos de qualidade do ar.")
+    else:
+        pol_ass = st.selectbox("Poluente para comparação descritiva", list(POLUENTES), key="pol_ass")
+        col_ass, unidade_ass = POLUENTES[pol_ass]
+        combinado = tot.merge(ar_resumo[["ano", col_ass]], on="ano", how="inner")
+        if len(combinado) == 3:
+            # Índices normalizados para ilustrar trajetórias, sem inferência causal.
+            comparacao = combinado[["ano", "area", "bio", col_ass]].copy()
+            for var in ["area", "bio", col_ass]:
+                base_2024 = comparacao.loc[comparacao["ano"] == 2024, var].iloc[0]
+                comparacao[var] = comparacao[var] / base_2024 * 100 if pd.notna(base_2024) and base_2024 != 0 else np.nan
+            longo = comparacao.melt(id_vars="ano", var_name="variavel", value_name="indice")
+            longo["variavel"] = longo["variavel"].replace({"area": "Área total de copa", "bio": "Biomassa estimada", col_ass: pol_ass})
+            st.plotly_chart(estilizar(px.line(longo, x="ano", y="indice", color="variavel", markers=True,
+                        title="Trajetórias relativas (2024 = 100)", labels={"indice": "Índice relativo", "ano": "Ano"})),
+                        use_container_width=True)
+            st.caption(f"{pol_ass} em {unidade_ass}: médias modeladas do CAMS Global, de 10/jan a 22/set "
+                       "(excluído 29/fev); dados do GEE: jan–set. Períodos não são idênticos. "
+                       "Três observações anuais não permitem inferência causal ou regressão robusta.")
+        else:
+            st.warning("É necessário ter dados dos três anos para a comparação.")
 
-with t6:
+with t7:
     explicacao("sobre")
     st.markdown("**Fontes:** imagens de satélite segmentadas por IA no QGIS · Sentinel-2 SR (NDVI/EVI) · "
-                "CHIRPS (precipitação) · MODIS MOD11A1 (temperatura de superfície) · Jucker et al. (2017).")
+                "CHIRPS (precipitação) · MODIS MOD11A1 (temperatura de superfície) · "
+                 "Open-Meteo/CAMS Global (qualidade do ar, modelagem atmosférica) · Jucker et al. (2017).")
