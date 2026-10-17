@@ -112,7 +112,55 @@ periodos.forEach(function(p) {
 });
 
 print('Tabela consolidada de indicadores ambientais:', tabelaFinal);
+// ============================================================
+// EXPORTAÇÃO DOS RASTERS PARA O DASHBOARD
+// ============================================================
 
+function exportarRaster(imagem, nome, escala) {
+  Export.image.toDrive({
+    image: imagem.clip(geom),
+    description: nome,
+    folder: 'TCC_GEE_Rasters',
+    fileNamePrefix: nome,
+    region: geom,
+    scale: escala,
+    crs: 'EPSG:4326',
+    fileFormat: 'GeoTIFF',
+    maxPixels: 1e9
+  });
+}
+
+periodos.forEach(function(p) {
+
+  var im = construirImagens(p.ini, p.fim);
+
+  // NDVI e EVI - resolução Sentinel-2
+  exportarRaster(
+    im.ndvi,
+    'NDVI_' + p.ano,
+    10
+  );
+
+  exportarRaster(
+    im.evi,
+    'EVI_' + p.ano,
+    10
+  );
+
+  // Precipitação - resolução CHIRPS
+  exportarRaster(
+    im.precip,
+    'Precipitacao_' + p.ano,
+    5500
+  );
+
+  // Temperatura - resolução MODIS
+  exportarRaster(
+    im.temp,
+    'Temperatura_' + p.ano,
+    1000
+  );
+});
 // ---------- Exportação para o Google Drive ----------
 Export.table.toDrive({
   collection: tabelaFinal,
