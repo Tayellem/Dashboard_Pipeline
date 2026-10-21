@@ -53,6 +53,16 @@ POLUENTES = {
 MESES = {1: "Jan", 2: "Fev", 3: "Mar", 4: "Abr", 5: "Mai",
          6: "Jun", 7: "Jul", 8: "Ago", 9: "Set"}
 
+# Nomes das abas (usados no seletor e nos blocos "if aba == ...")
+ABA_GERAL = "🏠 Visão geral"
+ABA_MAPA = "🗺️ Mapa"
+ABA_ARVORES = "🌿 Árvores"
+ABA_AMBIENTE = "🌍 Ambiente"
+ABA_AR = "🌫️ Qualidade do ar"
+ABA_ASSOC = "🔗 Associação"
+ABA_SOBRE = "📖 Sobre"
+ABAS = [ABA_GERAL, ABA_MAPA, ABA_ARVORES, ABA_AMBIENTE, ABA_AR, ABA_ASSOC, ABA_SOBRE]
+
 
 # Escalas e paletas iguais às utilizadas no Google Earth Engine.
 INDICADORES = {
@@ -126,6 +136,8 @@ st.markdown(
 .banner h1{margin:0;font-size:1.7rem}.banner p{margin:4px 0 0;opacity:.92}
 [data-testid="stMetric"]{background:#fff;border:1px solid #DDE8E0;border-radius:14px;padding:12px 14px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
 .stTabs [data-baseweb="tab"]{font-weight:600}
+div[role="radiogroup"]{gap:6px;flex-wrap:wrap}
+div[role="radiogroup"] label{background:#fff;border:1px solid #DDE8E0;border-radius:10px;padding:6px 14px;font-weight:600}
 </style>""",
     unsafe_allow_html=True,
 )
@@ -231,22 +243,35 @@ def explicacao(chave):
 
 
 # ============================================================
-# BARRA LATERAL
+# NAVEGAÇÃO (substitui st.tabs) E BARRA LATERAL
 # ============================================================
-st.sidebar.header("Filtros do mapa")
-ano = st.sidebar.select_slider("Ano", [2024, 2025, 2026], value=2026)
-modo = st.sidebar.radio("Colorir por", ["tendência", "biomassa"])
-sobrepor = st.sidebar.checkbox("Sobrepor contorno de 2024", value=True)
-destaque = st.sidebar.selectbox("Destacar árvore", ["—"] + [int(i) for i in ids])
-destaque = None if destaque == "—" else destaque
+aba = st.radio("Seção", ABAS, horizontal=True, label_visibility="collapsed", key="aba_ativa")
 
-st.sidebar.divider()
-st.sidebar.header("Camada ambiental")
-indicador_ambiental = st.sidebar.selectbox(
-    "Indicador", ["Nenhum", *INDICADORES.keys()], index=1
-)
-ano_ambiental = st.sidebar.selectbox("Ano do indicador", [2024, 2025, 2026], index=2)
-opacidade_ambiental = st.sidebar.slider("Opacidade", 0.0, 1.0, 0.70, 0.05)
+# Valores padrão (usados apenas se a aba Mapa não estiver ativa).
+ano = 2026
+modo = "tendência"
+sobrepor = True
+destaque = None
+indicador_ambiental = "Nenhum"
+ano_ambiental = 2026
+opacidade_ambiental = 0.70
+
+# A barra lateral só é criada na aba do mapa; nas outras ela não aparece.
+if aba == ABA_MAPA:
+    st.sidebar.header("Filtros do mapa")
+    ano = st.sidebar.select_slider("Ano", [2024, 2025, 2026], value=2026)
+    modo = st.sidebar.radio("Colorir por", ["tendência", "biomassa"])
+    sobrepor = st.sidebar.checkbox("Sobrepor contorno de 2024", value=True)
+    destaque = st.sidebar.selectbox("Destacar árvore", ["—"] + [int(i) for i in ids])
+    destaque = None if destaque == "—" else destaque
+
+    st.sidebar.divider()
+    st.sidebar.header("Camada ambiental")
+    indicador_ambiental = st.sidebar.selectbox(
+        "Indicador", ["Nenhum", *INDICADORES.keys()], index=1
+    )
+    ano_ambiental = st.sidebar.selectbox("Ano do indicador", [2024, 2025, 2026], index=2)
+    opacidade_ambiental = st.sidebar.slider("Opacidade", 0.0, 1.0, 0.70, 0.05)
 
 
 # ============================================================
@@ -337,11 +362,9 @@ def mostrar_imagens():
 
 
 # ============================================================
-# ABAS
+# CONTEÚDO DAS ABAS (somente a aba selecionada é executada)
 # ============================================================
-t1, t2, t3, t4, t5, t6, t7 = st.tabs(["🏠 Visão geral", "🗺️ Mapa", "🌿 Árvores", "🌍 Ambiente", "🌫️ Qualidade do ar", "🔗 Associação", "📖 Sobre"])
-
-with t1:
+if aba == ABA_GERAL:
     explicacao("geral")
     c = st.columns(5)
     area_v, area_d = kpi("area")
@@ -360,7 +383,7 @@ with t1:
                                      color_discrete_sequence=[PALETA[1]])), use_container_width=True)
     st.caption("Biomassa: Jucker et al. (2017), Eq. 7, com a altura de campo igual nos três anos.")
 
-with t2:
+if aba == ABA_MAPA:
     explicacao("mapa")
     st.caption(
         f"Copas: {ano} · Camada ambiental: "
@@ -387,7 +410,7 @@ with t2:
     # O mapa interativo acima já mostra os GeoTIFFs reais; prints são opcionais.
 
 
-with t3:
+if aba == ABA_ARVORES:
     explicacao("arvores")
     a, b = st.columns([3, 2])
     fig = px.bar(a26.assign(arvore=a26.det_id.astype(str)), x="arvore", y="dCA_2024_2026_m2", color="tendencia",
@@ -410,7 +433,7 @@ with t3:
     st.dataframe(tab.round(1), use_container_width=True, hide_index=True)
     st.download_button("Baixar tabela (CSV)", tab.to_csv(index=False).encode("utf-8"), "arvores.csv", "text/csv")
 
-with t4:
+if aba == ABA_AMBIENTE:
     explicacao("ambiente")
     ind = amb.melt(id_vars="Ano", value_vars=["EVI_Medio", "NDVI_Medio"], var_name="Índice", value_name="valor")
     e1, e2 = st.columns(2)
@@ -428,7 +451,7 @@ with t4:
     st.caption("Médias do entorno de ≈1,1 km (não das árvores). A temperatura é de superfície (MODIS), não do ar.")
     # Os gráficos usam o CSV consolidado, não os rasters.
 
-with t5:
+if aba == ABA_AR:
     explicacao("ar")
     st.subheader("Qualidade do ar em Manaus | CAMS Global")
     st.caption("Estimativas modeladas do Open-Meteo/CAMS Global (grade de aproximadamente 45 km). "
@@ -478,7 +501,7 @@ with t5:
                 "portanto as janelas temporais não coincidem integralmente.")
 
 
-with t6:
+if aba == ABA_ASSOC:
     explicacao("associacao")
     cols = {"area": "Área de copa", "bio": "Biomassa", "EVI_Medio": "EVI", "NDVI_Medio": "NDVI",
             "Precipitacao_mm": "Precipitação", "Temperatura_C": "Temp. superfície"}
@@ -521,7 +544,7 @@ with t6:
         else:
             st.warning("É necessário ter dados dos três anos para a comparação.")
 
-with t7:
+if aba == ABA_SOBRE:
     explicacao("sobre")
     st.markdown("**Fontes:** imagens de satélite segmentadas por IA no QGIS · Sentinel-2 SR (NDVI/EVI) · "
                 "CHIRPS (precipitação) · MODIS MOD11A1 (temperatura de superfície) · "
