@@ -24,17 +24,81 @@ BASE = Path(__file__).parent
 # ============================================================
 # TEXTOS EXPLICATIVOS (edite aqui: um bloco por aba)
 # ============================================================
-LOREM = (
-    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor "
-    "incididunt ut labore et dolore magna aliqua.\n\n"
-    "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip "
-    "ex ea commodo consequat.\n\n"
-    "- Duis aute irure dolor in reprehenderit in voluptate velit.\n"
-    "- Excepteur sint occaecat cupidatat non proident.\n"
-    "- Sunt in culpa qui officia deserunt mollit anim id est laborum."
-)
-TEXTOS = {k: LOREM for k in ["geral", "mapa", "arvores", "ambiente", "associacao", "ar", "sobre"]}
+# ============================================================
+# TEXTOS EXPLICATIVOS (um bloco por aba)
+# Substitua no app.py tudo o que vai de "LOREM = (" até a linha
+# "TEXTOS = {k: LOREM for k in [...]}" por este bloco.
+# ============================================================
+TEXTOS = {
+    "geral": """**Sobre este painel**
 
+Este painel reúne os resultados de um estudo exploratório sobre árvores urbanas no canteiro central de duas avenidas de Manaus-AM. As copas de 18 árvores foram identificadas por segmentação com IA no QGIS (com correção manual) em imagens de 2024, 2025 e 2026. A partir delas, o painel mostra a área de copa, a biomassa estimada, a variação da copa ao longo dos anos e indicadores ambientais do entorno: vegetação, chuva, temperatura e qualidade do ar.
+
+O objetivo é oferecer uma visão exploratória para engenheiros ambientais, biólogos e órgãos públicos. Os resultados descrevem **associações, não causas**: são poucos anos, as imagens vêm do Google Earth e árvores urbanas sofrem podas e outras interferências próprias da cidade.
+
+**Como ler esta seção**
+- Os cartões do topo mostram o valor de 2026 e a variação percentual em relação a 2024.
+- Os gráficos de barras somam todas as árvores: área total de copa (m²) e biomassa total (kg) em cada ano.
+- A biomassa usa a altura medida em campo, igual nos três anos. Por isso, sua variação vem apenas da mudança na área de copa.
+- Na temperatura, a cor da variação é invertida: o aumento aparece em vermelho.""",
+
+    "mapa": """O mapa mostra as copas das árvores sobre imagem de satélite. Use o menu lateral para controlar o que aparece:
+- **Ano**: escolhe o ano das copas. Com "Sobrepor contorno de 2024", o contorno tracejado branco mostra o quanto cada copa cresceu ou encolheu.
+- **Colorir por**: "tendência" usa verde (aumento), cinza (estável), laranja (redução) e cinza-claro (indeterminada); "biomassa" usa uma escala de verde, do claro (menor) ao escuro (maior).
+- **Destacar árvore**: realça uma árvore e abre, abaixo do mapa, a evolução dela.
+- **Camada ambiental**: sobrepõe NDVI, EVI, precipitação ou temperatura de um ano, com opacidade ajustável. A escala de cores é a mesma em todos os anos, então as cores podem ser comparadas.
+
+Clique em uma copa para ver altura, área, biomassa e variação. A linha vermelha tracejada é a área de estudo (≈1,1 km) usada nos indicadores ambientais. Os pixels dos sensores são bem maiores que uma árvore, então as camadas mostram o contexto do entorno, não detalhes de árvores individuais.""",
+
+    "arvores": """- **Variação da copa por árvore**: cada barra é a diferença de área de copa entre 2024 e 2026 (ΔCA, em m²). Barras para cima indicam copa maior; para baixo, copa menor. A cor indica a tendência.
+- **Tendências** (gráfico de rosca): mostra quantas árvores estão em cada categoria.
+- **Área de copa por ano**: escolha as árvores no seletor para acompanhar a evolução em 2024, 2025 e 2026.
+- **Tabela**: reúne altura, área de copa por ano, ΔCA, V% (variação percentual em relação a 2024), tendência e observações. Pode ser baixada em CSV.
+
+Atenção: a mesma variação em m² pesa diferente em árvores pequenas e grandes, então olhe também o V%. Além disso, uma redução pode ter outras causas além da saúde da árvore, como a poda (caso da árvore 5).""",
+
+    "ambiente": """Os gráficos comparam indicadores médios de janeiro a setembro de 2024, 2025 e 2026 para uma área de cerca de 1,1 km ao redor das árvores:
+- **NDVI e EVI** (Sentinel-2): medem o vigor da vegetação; valores maiores indicam vegetação mais densa e ativa. O EVI costuma ser menos sensível à saturação em áreas muito verdes.
+- **Precipitação acumulada** (CHIRPS), em mm.
+- **Temperatura de superfície diurna** (MODIS), em °C.
+- **Cenas Sentinel-2 usadas**: mostra quantas imagens entraram no cálculo; menos cenas podem tornar a média menos representativa.
+
+Os valores são da área ao redor, não das árvores, e a temperatura é a da superfície, não a do ar.""",
+
+    "ar": """Esta seção usa estimativas de um modelo atmosférico (CAMS Global, via Open-Meteo) em uma grade de cerca de 45 km. **Não são medições de sensores locais.**
+- Escolha o **poluente** (MP2,5, MP10, CO ou NO₂) e os **anos** que quer comparar.
+- Os cartões mostram a média de cada ano e o gráfico de linhas mostra a variação mês a mês.
+- O gráfico de barras compara a média do período entre os anos, ponderada pelas horas válidas de cada mês.
+- O período comparável vai de 10 de janeiro a 22 de setembro de cada ano (sem 29/fev de 2024), então janeiro e setembro são meses parciais.
+
+Como a grade é grande, os valores representam a região de Manaus, e não o canteiro estudado.""",
+
+    "associacao": """Aqui as variáveis são colocadas lado a lado para ver se variam no mesmo sentido.
+- No gráfico principal, cada variável é convertida para uma escala em que **2024 = 100**. Linhas acima de 100 indicam aumento em relação a 2024; abaixo de 100, redução.
+- A tabela mostra, com ▲ ou ▼ e o percentual, a mudança entre 2024→2025, 2025→2026 e 2024→2026.
+- Na parte de qualidade do ar, escolha um poluente para comparar a trajetória dele com a da área de copa e da biomassa.
+
+Atenção: são apenas três anos e um único valor ambiental para todas as árvores, sem teste estatístico. O painel mostra se as variáveis acompanham umas às outras, e não que uma causa a outra. Os períodos dos dados de ar (10/jan–22/set) e do Earth Engine (jan–set) também não coincidem exatamente.""",
+
+    "sobre": """**Sobre o estudo**
+
+Este painel faz parte de um TCC de Engenharia da Computação. O foco é a engenharia aplicada: integrar segmentação por IA, estimativa de biomassa e dados ambientais em uma ferramenta interativa e aberta.
+
+**Método em resumo**
+1. As imagens de 2024, 2025 e 2026 foram georreferenciadas no QGIS e as copas segmentadas com IA, com correção manual. A qualidade foi verificada com IoU e F1 score, comparando com uma segmentação manual de referência.
+2. A biomassa foi estimada com as equações de Jucker et al. (2017), a partir da altura medida em campo e da dimensão da copa.
+3. A variação da copa é ΔCA = CA2026 − CA2024 e V(%) = (CA2026 − CA2024) / CA2024 × 100.
+4. Os indicadores ambientais do entorno vieram do Google Earth Engine e a qualidade do ar, do CAMS Global.
+
+**Limitações**
+- As imagens são do Google Earth, que não garante precisão; o ideal seriam ortofotos.
+- A altura foi medida em campo uma única vez e usada nos três anos.
+- Podas e outras interferências urbanas alteram as copas (por exemplo, a árvore 5).
+- Os dados ambientais descrevem o entorno, e há poucos anos de observação.
+- Os resultados descrevem associações, não causas.
+
+O repositório é aberto: outras pessoas podem usar suas próprias imagens ou ortofotos.""",
+}
 # Imagens do Earth Engine (salve os prints em imagens/ no repositório)
 IMAGENS = [
     ("imagens/gee_area_estudo.png", "Área de estudo (≈1,1 km) no Earth Engine"),
